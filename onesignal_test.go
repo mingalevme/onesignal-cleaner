@@ -23,7 +23,7 @@ func (c *TestAppHttpClient) Do(req *http.Request) (*http.Response, error) {
 	return c.DoFunc(req)
 }
 
-func TestGetExportUrl(t *testing.T) {
+func TestOneSignalClient_GetExportUrl(t *testing.T) {
 	appHttpClient := &TestAppHttpClient{
 		DoFunc: func(req *http.Request) (*http.Response, error) {
 			assert.Equal(t, TestOnesignalOrigin+"/api/v1/players/csv_export?app_id=appId", req.URL.String())
@@ -37,7 +37,10 @@ func TestGetExportUrl(t *testing.T) {
 			}, nil
 		},
 	}
-	oneSignalClient := NewOneSignalClient("https://my-onesignal-server.off", "appId", "restApiKey", appHttpClient, gologger.NewStdoutLogger(gologger.LevelDebug))
+	oneSignalClient := NewOneSignalClient("appId", "restApiKey")
+	oneSignalClient.OriginUrl = "https://my-onesignal-server.off"
+	oneSignalClient.HttpClient = appHttpClient
+	oneSignalClient.Logger = gologger.NewStdoutLogger(gologger.LevelDebug)
 	exportUrl, err := oneSignalClient.GetExportUrl()
 	assert.Equal(t, "https://onesignal.com/csv_exports/b2f7f966-d8cc-11e4-bed1-df8f05be55ba/users_184948440ec0e334728e87228011ff41_2015-11-10.csv.gz", exportUrl)
 	assert.NoError(t, err)
