@@ -11,17 +11,19 @@ import (
 	urllib "net/url"
 )
 
+const OnesignalOrigin = "https://onesignal.com"
+
 type OneSignalClient struct {
 	OriginUrl  string
 	AppId      string
 	RestApiKey string
-	Client     *http.Client
+	Client     AppHttpClient
 	Logger     gologger.Logger
 }
 
-func NewOneSignalClient(originUrl string, appId string, restApiKey string, httpClient *http.Client, logger gologger.Logger) *OneSignalClient {
-	if httpClient == nil {
-		httpClient = http.DefaultClient
+func NewOneSignalClient(originUrl string, appId string, restApiKey string, appHttpClient AppHttpClient, logger gologger.Logger) *OneSignalClient {
+	if appHttpClient == nil {
+		appHttpClient = http.DefaultClient
 	}
 
 	if logger == nil {
@@ -32,7 +34,7 @@ func NewOneSignalClient(originUrl string, appId string, restApiKey string, httpC
 		OriginUrl:  originUrl,
 		AppId:      appId,
 		RestApiKey: restApiKey,
-		Client:     httpClient,
+		Client:     appHttpClient,
 		Logger:     logger,
 	}
 }
@@ -69,7 +71,9 @@ func (c *OneSignalClient) createGetExportRequest() *http.Request {
 	if err != nil {
 		panic(err)
 	}
-	endpointUrl.Query().Set("app_id", c.AppId)
+	q := endpointUrl.Query()
+	q.Set("app_id", c.AppId)
+	endpointUrl.RawQuery = q.Encode()
 	req, err := http.NewRequest(http.MethodPost, endpointUrl.String(), nil)
 	if err != nil {
 		panic(err)
