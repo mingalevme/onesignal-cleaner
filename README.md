@@ -30,7 +30,7 @@ docker build --target app -t onesignal-cleaner .
 # Run via the code
 
 ```shell
-go run onesignal-cleaner --app-id "your-app-id" --rest-api-key "your-app-rest-api-key" --ttl $(( 86400*30*12 ))
+go run ./... --app-id "your-app-id" --rest-api-key "your-app-rest-api-key" --ttl $(( 86400*30*12 ))
 ```
 
 # Develop
