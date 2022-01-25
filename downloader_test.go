@@ -38,7 +38,7 @@ func TestDownloader_Download(t *testing.T) {
 		responses = responses[:len(responses)-1]
 		return resp, nil
 	}}
-	d.Logger = gologger.NewStdoutLogger(gologger.LevelDebug)
+	d.Logger = gologger.NewNullLogger()
 	d.Pause = time.Nanosecond
 	src := "https://example.com/test"
 	dst := &strings.Builder{}
