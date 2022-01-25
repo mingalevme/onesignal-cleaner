@@ -7,4 +7,4 @@ RUN go build -o app .
 
 FROM alpine AS app
 COPY --from=builder /app/app /usr/local/bin/app
-ENTRYPOINT [ "/usr/local/bin/app", "onesignal-cleaner" ]
+ENTRYPOINT [ "/usr/local/bin/app" ]
