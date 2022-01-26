@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/mingalevme/gologger"
 	"github.com/pkg/errors"
 	"io"
@@ -13,8 +14,9 @@ type Cleaner struct {
 	Downloader         *Downloader
 	GzCsvReaderFactory func(filename string) (*GzCsvReader, error)
 	Logger             gologger.Logger
-	TmpDir             string
 	TTL                int
+	ConnectionTimeout  int
+	TmpDir             string
 	Now                Nower
 }
 
@@ -29,10 +31,10 @@ func NewCleaner(appId string, restApiKey string, logger gologger.Logger) *Cleane
 		GzCsvReaderFactory: func(filename string) (*GzCsvReader, error) {
 			return NewGzCsvReader(filename)
 		},
-		Logger: logger,
+		TTL:    86400 * 30 * 6,
 		TmpDir: os.TempDir(),
-		TTL:    3600 * 24 * 30 * 6,
 		Now:    Now,
+		Logger: logger,
 	}
 }
 
@@ -50,12 +52,16 @@ func (c *Cleaner) Clean() error {
 	defer func(f *os.File) {
 		_ = f.Close()
 	}(f)
+	c.Logger.
+		WithField("src", dataUrl).
+		WithField("dst", fileName).
+		Infof("Downloading players into a file")
 	err = c.Downloader.Download(dataUrl, f)
 	_ = f.Close()
 	if err != nil {
 		return errors.Wrap(err, "error while downloading data")
 	}
-	c.Logger.Debugf("Players have been fetched: %s", fileName)
+	c.Logger.Infof("Players have been fetched to a file: %s", fileName)
 	r, err := c.GzCsvReaderFactory(fileName)
 	if err != nil {
 		return errors.Wrap(err, "error while creating/initializing gz-csv-reader")
@@ -86,7 +92,7 @@ func (c *Cleaner) handlePlayer(player map[string]string) {
 	if err != nil {
 		c.Logger.
 			WithField("id", player["id"]).
-			WithField("last_active", player["last_active"]).
+			WithField("last-active", player["last_active"]).
 			WithError(err).
 			Errorf("Error while parsing last active timestamp")
 		return
@@ -94,29 +100,30 @@ func (c *Cleaner) handlePlayer(player map[string]string) {
 	if int(lastActive.Unix()) > c.Now()-c.TTL {
 		c.Logger.
 			WithField("id", player["id"]).
-			WithField("last_active", player["last_active"]).
-			Infof("Player is alive")
+			WithField("last-active", player["last_active"]).
+			Infof("Player is active")
 		return
 	}
 	c.Logger.
 		WithField("id", player["id"]).
-		WithField("last_active", player["last_active"]).
-		Infof("Player is outdated")
+		WithField("last-active", player["last_active"]).
+		Infof("Player is inactive")
 	err = c.OneSignalClient.DeletePlayer(player["id"])
 	if err != nil {
 		c.Logger.
 			WithField("id", player["id"]).
-			WithField("last_active", player["last_active"]).
+			WithField("last-active", player["last_active"]).
 			WithError(err).
 			Errorf("Error while deleting a player")
 		return
 	}
 	c.Logger.
 		WithField("id", player["id"]).
-		WithField("last_active", player["last_active"]).
+		WithField("last-active", player["last_active"]).
 		Infof("User has been deleted successfully")
 }
 
 func (c *Cleaner) getDestFileName() string {
-	return c.TmpDir + "/onesignal-players-" + c.OneSignalClient.AppId + ".csv.gz"
+	now := time.Unix(int64(c.Now()), 0).Format("20060102150405")
+	return fmt.Sprintf("%s/onesignal-players-%s-%s.csv.gz", c.TmpDir, c.OneSignalClient.AppId, now)
 }

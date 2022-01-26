@@ -25,13 +25,26 @@ func main() {
 				Required: true,
 			},
 			&cli.IntFlag{
-				Name: "ttl",
-				Usage: "TTL in seconds, default 15552000 (3600*24*30*6)",
-				EnvVars: []string{"ONESIGNAL_CLEANER_TTL"},
+				Name: "inactivity-threshold",
+				Usage: "Max time in seconds player is considered alive, default is 6 months (15552000s)",
+				EnvVars: []string{"ONESIGNAL_CLEANER_INACTIVITY_THRESHOLD"},
+				Required: false,
+			},
+			&cli.IntFlag{
+				Name: "connection-timeout",
+				Usage: "Max time in seconds to wait players data resource is ready",
+				EnvVars: []string{"ONESIGNAL_CLEANER_CONNECTION_TIMEOUT"},
+				Required: false,
+			},
+			&cli.StringFlag{
+				Name: "tmp-dir",
+				Usage: "Dir to download players data",
+				EnvVars: []string{"ONESIGNAL_CLEANER_TMP_DIR"},
 				Required: false,
 			},
 			&cli.BoolFlag{
 				Name: "debug",
+				Usage: "Sets logging level to debug",
 				EnvVars: []string{"ONESIGNAL_CLEANER_DEBUG"},
 				Required: false,
 			},
@@ -44,8 +57,14 @@ func main() {
 			logger := gologger.NewStdoutLogger(lvl)
 			cleaner := NewCleaner(c.String("app-id"), c.String("rest-api-key"), logger)
 			cleaner.Logger = logger
-			if c.Int("ttl") > 0 {
-				cleaner.TTL = c.Int("ttl")
+			if c.Int("inactivity-threshold") > 0 {
+				cleaner.TTL = c.Int("inactivity-threshold")
+			}
+			if c.String("tmp-dir") != "" {
+				cleaner.TmpDir = c.String("tmp-dir")
+			}
+			if c.Int("connection-timeout") > 0 {
+				cleaner.Downloader.ReadinessTimeout = c.Int("connection-timeout")
 			}
 			logger.WithField("app-id", cleaner.OneSignalClient.AppId).
 				WithField("ttl", cleaner.TTL).
