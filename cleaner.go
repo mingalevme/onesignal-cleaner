@@ -47,30 +47,19 @@ func NewCleaner(appId string, restApiKey string, logger gologger.Logger) *Cleane
 	}
 }
 
-func (c *Cleaner) Clean() error {
-	dataUrl, err := c.OneSignalClient.GetExportUrl()
-	if err != nil {
-		return errors.Wrap(err, "error while getting export url")
+func (c *Cleaner) Clean(localFileName ...string) error {
+	var fileName string
+	var err error
+	if len(localFileName) > 0 && localFileName[0] != "" {
+		fileName = localFileName[0]
+		c.Logger.WithField("file", fileName).Infof("Reading data from a local file")
+	} else {
+		fileName, err = c.fetchData()
+		if err != nil {
+			return errors.Wrap(err, "error while fetching a data file")
+		}
 	}
-	c.Logger.Infof("Export url has been fetched: %s", dataUrl)
-	fileName := c.getDestFileName()
-	f, err := os.Create(fileName)
-	if err != nil {
-		return errors.Wrap(err, "error while creating a temporary file")
-	}
-	defer func(f *os.File) {
-		_ = f.Close()
-	}(f)
-	c.Logger.
-		WithField("src", dataUrl).
-		WithField("dst", fileName).
-		Infof("Downloading players into a file")
-	err = c.Downloader.Download(dataUrl, f)
-	_ = f.Close()
-	if err != nil {
-		return errors.Wrap(err, "error while downloading data")
-	}
-	c.Logger.Infof("Players have been fetched to a file: %s", fileName)
+	c.Logger.Infof("Starting data file reading ...")
 	r, err := c.GzCsvReaderFactory(fileName)
 	if err != nil {
 		return errors.Wrap(err, "error while creating/initializing gz-csv-reader")
@@ -78,7 +67,7 @@ func (c *Cleaner) Clean() error {
 	defer r.Close()
 	throttle := make(chan struct{}, c.Concurrency)
 	wg := sync.WaitGroup{}
-	c.Logger.Infof("Starting players reading ...")
+	c.Logger.Infof("Starting players handling ...")
 	i := 0
 	for {
 		i += 1
@@ -126,6 +115,33 @@ func (c *Cleaner) Clean() error {
 	wg.Wait()
 	close(throttle)
 	return nil
+}
+
+func (c *Cleaner) fetchData() (string, error) {
+	dataUrl, err := c.OneSignalClient.GetExportUrl()
+	if err != nil {
+		return "", errors.Wrap(err, "error while getting export url")
+	}
+	c.Logger.Infof("Export url has been fetched: %s", dataUrl)
+	fileName := c.getDestFileName()
+	f, err := os.Create(fileName)
+	if err != nil {
+		return "", errors.Wrap(err, "error while creating a temporary file")
+	}
+	defer func(f *os.File) {
+		_ = f.Close()
+	}(f)
+	c.Logger.
+		WithField("src", dataUrl).
+		WithField("dst", fileName).
+		Infof("Downloading players into a file")
+	err = c.Downloader.Download(dataUrl, f)
+	_ = f.Close()
+	if err != nil {
+		return "", errors.Wrap(err, "error while downloading data")
+	}
+	c.Logger.Infof("Players have been fetched to a file: %s", fileName)
+	return fileName, nil
 }
 
 func (c *Cleaner) unmarshalPlayerData(pd PlayerData) (Player, error) {

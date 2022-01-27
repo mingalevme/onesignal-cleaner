@@ -49,6 +49,12 @@ func main() {
 				Value: 5,
 				Required: false,
 			},
+			&cli.StringFlag{
+				Name: "data-file",
+				Usage: "Read data from a local file (*.csv.gz) instead of requesting one from OneSignal",
+				EnvVars: []string{"ONESIGNAL_CLEANER_DATA_FILE"},
+				Required: false,
+			},
 			&cli.BoolFlag{
 				Name: "debug",
 				Usage: "Sets logging level to debug",
@@ -82,7 +88,7 @@ func main() {
 				WithField("connection-timeout", cleaner.Downloader.ReadinessTimeout).
 				WithField("tmp-dir", cleaner.TmpDir).
 				Infof("OneSignal cleaning is starting ...")
-			err := cleaner.Clean()
+			err := cleaner.Clean(c.String("data-file"))
 			if err != nil {
 				logger.WithField("app-id", cleaner.OneSignalClient.AppId).
 					WithField("ttl", cleaner.TTL).
