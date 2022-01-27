@@ -21,7 +21,7 @@ type Cleaner struct {
 	Downloader         *Downloader
 	GzCsvReaderFactory func(filename string) (*GzCsvReader, error)
 	Logger             gologger.Logger
-	TTL                int
+	InactiveFor        int
 	ConnectionTimeout  int
 	TmpDir             string
 	Concurrency        int
@@ -39,7 +39,7 @@ func NewCleaner(appId string, restApiKey string, logger gologger.Logger) *Cleane
 		GzCsvReaderFactory: func(filename string) (*GzCsvReader, error) {
 			return NewGzCsvReader(filename)
 		},
-		TTL:         86400 * 30 * 6,
+		InactiveFor: 86400 * 30 * 6,
 		TmpDir:      os.TempDir(),
 		Concurrency: 1,
 		Now:         Now,
@@ -68,6 +68,7 @@ func (c *Cleaner) Clean(localFileName ...string) error {
 	throttle := make(chan struct{}, c.Concurrency)
 	wg := sync.WaitGroup{}
 	c.Logger.Infof("Starting players handling ...")
+	deleted := 0
 	i := 0
 	for {
 		i += 1
@@ -90,7 +91,7 @@ func (c *Cleaner) Clean(localFileName ...string) error {
 				Errorf("Error while unmarshalling a player data")
 			continue
 		}
-		if int(p.LastActive.Unix()) > c.Now()-c.TTL {
+		if int(p.LastActive.Unix()) > c.Now()-c.InactiveFor {
 			c.Logger.
 				WithField("id", p.Id).
 				WithField("last-active", p.LastActive.String()).
@@ -111,9 +112,12 @@ func (c *Cleaner) Clean(localFileName ...string) error {
 			<-throttle
 			wg.Done()
 		}(i)
+		deleted += 1
 	}
 	wg.Wait()
 	close(throttle)
+	c.Logger.Infof("Consider deleting a data file: %s", fileName)
+	c.Logger.Infof("Cleaning has been finished: %d players have been deleted", deleted)
 	return nil
 }
 

@@ -25,21 +25,24 @@ func main() {
 				Required: true,
 			},
 			&cli.IntFlag{
-				Name: "inactivity-threshold",
-				Usage: "Max time in seconds player is considered alive, default is 6 months (15552000s)",
+				Name: "inactive-for",
+				Usage: "Max time in seconds player is considered active, default is 1 year",
 				EnvVars: []string{"ONESIGNAL_CLEANER_INACTIVITY_THRESHOLD"},
+				Value: 86400*365,
 				Required: false,
 			},
 			&cli.IntFlag{
-				Name: "connection-timeout",
+				Name: "readiness-timeout",
 				Usage: "Max time in seconds to wait players data resource is ready",
 				EnvVars: []string{"ONESIGNAL_CLEANER_CONNECTION_TIMEOUT"},
+				Value: 600,
 				Required: false,
 			},
 			&cli.StringFlag{
 				Name: "tmp-dir",
-				Usage: "Dir to download players data",
+				Usage: "Dir to download players data, default is operation system's temporary directory",
 				EnvVars: []string{"ONESIGNAL_CLEANER_TMP_DIR"},
+				Value: os.TempDir(),
 				Required: false,
 			},
 			&cli.IntFlag{
@@ -70,33 +73,33 @@ func main() {
 			logger := gologger.NewStdoutLogger(lvl)
 			cleaner := NewCleaner(c.String("app-id"), c.String("rest-api-key"), logger)
 			cleaner.Logger = logger
-			if c.Int("inactivity-threshold") > 0 {
-				cleaner.TTL = c.Int("inactivity-threshold")
+			if c.Int("inactive-for") > 0 {
+				cleaner.InactiveFor = c.Int("inactive-for")
 			}
 			if c.String("tmp-dir") != "" {
 				cleaner.TmpDir = c.String("tmp-dir")
 			}
-			if c.Int("connection-timeout") > 0 {
-				cleaner.Downloader.ReadinessTimeout = c.Int("connection-timeout")
+			if c.Int("readiness-timeout") > 0 {
+				cleaner.Downloader.ReadinessTimeout = c.Int("readiness-timeout")
 			}
 			if c.Int("concurrency") > 0 {
 				cleaner.Concurrency = c.Int("concurrency")
 			}
 			logger.WithField("app-id", cleaner.OneSignalClient.AppId).
-				WithField("inactivity-threshold", cleaner.TTL).
+				WithField("inactive-for", cleaner.InactiveFor).
 				WithField("concurrency", cleaner.Concurrency).
-				WithField("connection-timeout", cleaner.Downloader.ReadinessTimeout).
+				WithField("readiness-timeout", cleaner.Downloader.ReadinessTimeout).
 				WithField("tmp-dir", cleaner.TmpDir).
 				Infof("OneSignal cleaning is starting ...")
 			err := cleaner.Clean(c.String("data-file"))
 			if err != nil {
 				logger.WithField("app-id", cleaner.OneSignalClient.AppId).
-					WithField("ttl", cleaner.TTL).
+					WithField("inactive-for", cleaner.InactiveFor).
 					WithError(err).
 					Errorf("Error while OneSignal cleaning")
 			} else {
 				logger.WithField("app-id", cleaner.OneSignalClient.AppId).
-					WithField("ttl", cleaner.TTL).
+					WithField("inactive-for", cleaner.InactiveFor).
 					Infof("OneSignal cleaning has been finished successfully")
 			}
 			return nil
