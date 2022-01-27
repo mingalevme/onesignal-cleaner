@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+type PlayerData map[string]string
+type Player struct {
+	Id         string
+	LastActive time.Time
+}
+
 type Cleaner struct {
 	OneSignalClient    *OneSignalClient
 	Downloader         *Downloader
@@ -17,6 +23,7 @@ type Cleaner struct {
 	TTL                int
 	ConnectionTimeout  int
 	TmpDir             string
+	Concurrency        int
 	Now                Nower
 }
 
@@ -33,6 +40,7 @@ func NewCleaner(appId string, restApiKey string, logger gologger.Logger) *Cleane
 		},
 		TTL:    86400 * 30 * 6,
 		TmpDir: os.TempDir(),
+		Concurrency: 1,
 		Now:    Now,
 		Logger: logger,
 	}
@@ -67,13 +75,21 @@ func (c *Cleaner) Clean() error {
 		return errors.Wrap(err, "error while creating/initializing gz-csv-reader")
 	}
 	defer r.Close()
+	queue := make(chan Player)
+	c.Logger.WithField("total", c.Concurrency).Debugf("Starting workers ...")
+	for j := 1; j <= c.Concurrency; j++ {
+		c.Logger.WithField("total", c.Concurrency).Debugf("Starting worker #%d ...", j)
+		go c.startWorker(j, queue)
+	}
+	c.Logger.WithField("total", c.Concurrency).Debugf("Workers have been started")
+	c.Logger.Infof("Starting players reading ...")
 	i := 0
 	for {
 		i += 1
 		c.Logger.Debugf("Reading row #%d", i)
 		// last_active:2018-10-26 08:48:42
 		// id:059f4d57-xxxx-xxxx-xxxx-fa83792fd276
-		player, err := r.ReadLine()
+		pd, err := r.ReadLine()
 		if err != nil {
 			if err == io.EOF {
 				c.Logger.Debugf("EOF")
@@ -81,45 +97,67 @@ func (c *Cleaner) Clean() error {
 			}
 			return errors.Wrapf(err, "error reading line #%d", i)
 		}
-		c.Logger.Debugf("Row #%d: %v", i, player)
-		c.handlePlayer(player)
+		c.Logger.Debugf("Row #%d: %v", i, pd)
+		p, err := c.unmarshalPlayerData(pd)
+		if err != nil {
+			c.Logger.
+				WithField("id", pd["id"]).
+				WithField("last-active", pd["last_active"]).
+				WithError(err).
+				Errorf("Error while unmarshalling a player data")
+			continue
+		}
+		c.Logger.Debugf("Sending player handling to queue: %s", pd["id"])
+		queue <- p
 	}
+	close(queue)
 	return nil
 }
 
-func (c *Cleaner) handlePlayer(player map[string]string) {
-	lastActive, err := time.Parse("2006-01-02 15:04:05", player["last_active"])
-	if err != nil {
-		c.Logger.
-			WithField("id", player["id"]).
-			WithField("last-active", player["last_active"]).
-			WithError(err).
-			Errorf("Error while parsing last active timestamp")
-		return
+func (c *Cleaner) unmarshalPlayerData(pd PlayerData) (Player, error) {
+	p := Player{
+		Id: pd["id"],
 	}
-	if int(lastActive.Unix()) > c.Now()-c.TTL {
+	lastActive, err := time.Parse("2006-01-02 15:04:05", pd["last_active"])
+	if err != nil {
+		return Player{}, errors.Wrapf(err, "error while parsing last active: %s", pd["last_active"])
+	}
+	p.LastActive = lastActive
+	return p, nil
+}
+
+func (c *Cleaner) startWorker(id int, queue <-chan Player) {
+	for p := range queue {
+		c.Logger.WithField("worker", id).WithField("player", p.Id).Debugf("Starting a player deletion ...")
+		c.handlePlayer(p)
+		c.Logger.WithField("worker", id).WithField("player", p.Id).Debugf("Player deletion has been finished")
+	}
+}
+
+func (c *Cleaner) handlePlayer(p Player) {
+	if int(p.LastActive.Unix()) > c.Now()-c.TTL {
 		c.Logger.
-			WithField("id", player["id"]).
-			WithField("last-active", player["last_active"]).
+			WithField("id", p.Id).
+			WithField("last-active", p.LastActive.String()).
 			Infof("Player is active")
 		return
 	}
 	c.Logger.
-		WithField("id", player["id"]).
-		WithField("last-active", player["last_active"]).
+		WithField("id", p.Id).
+		WithField("last-active", p.LastActive.String()).
 		Infof("Player is inactive")
-	err = c.OneSignalClient.DeletePlayer(player["id"])
+	err := c.OneSignalClient.DeletePlayer(p.Id)
 	if err != nil {
 		c.Logger.
-			WithField("id", player["id"]).
-			WithField("last-active", player["last_active"]).
+			WithField("id", p.Id).
+			WithField("last-active", p.LastActive.String()).
 			WithError(err).
 			Errorf("Error while deleting a player")
 		return
 	}
 	c.Logger.
-		WithField("id", player["id"]).
-		WithField("last-active", player["last_active"]).
+		WithField("id", p.Id).
+		WithField("last-active", p.LastActive.String()).
 		Infof("User has been deleted successfully")
 }
 

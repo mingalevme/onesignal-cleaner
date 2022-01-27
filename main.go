@@ -42,6 +42,12 @@ func main() {
 				EnvVars: []string{"ONESIGNAL_CLEANER_TMP_DIR"},
 				Required: false,
 			},
+			&cli.IntFlag{
+				Name: "concurrency",
+				Usage: "Max number of concurrent requests",
+				EnvVars: []string{"ONESIGNAL_CLEANER_CONCURRENCY"},
+				Required: false,
+			},
 			&cli.BoolFlag{
 				Name: "debug",
 				Usage: "Sets logging level to debug",
@@ -66,8 +72,14 @@ func main() {
 			if c.Int("connection-timeout") > 0 {
 				cleaner.Downloader.ReadinessTimeout = c.Int("connection-timeout")
 			}
+			if c.Int("concurrency") > 0 {
+				cleaner.Concurrency = c.Int("concurrency")
+			}
 			logger.WithField("app-id", cleaner.OneSignalClient.AppId).
-				WithField("ttl", cleaner.TTL).
+				WithField("inactivity-threshold", cleaner.TTL).
+				WithField("concurrency", cleaner.Concurrency).
+				WithField("connection-timeout", cleaner.Downloader.ReadinessTimeout).
+				WithField("tmp-dir", cleaner.TmpDir).
 				Infof("OneSignal cleaning is starting ...")
 			err := cleaner.Clean()
 			if err != nil {
