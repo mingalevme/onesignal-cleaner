@@ -10,20 +10,20 @@ import (
 )
 
 type Downloader struct {
-	AppHttpClient AppHttpClient
-	Timeout       int
-	Pause  time.Duration
-	Now    Nower
-	Logger gologger.Logger
+	AppHttpClient    AppHttpClient
+	ReadinessTimeout int
+	Pause            time.Duration
+	Now               Nower
+	Logger            gologger.Logger
 }
 
 func NewDownloader() *Downloader {
 	return &Downloader{
-		AppHttpClient: http.DefaultClient,
-		Timeout:       600,
-		Pause:         5 * time.Second,
-		Now:           Now,
-		Logger:        gologger.NewStdoutLogger(gologger.LevelInfo),
+		AppHttpClient:    http.DefaultClient,
+		ReadinessTimeout: 600,
+		Pause:            5 * time.Second,
+		Now:              Now,
+		Logger:           gologger.NewStdoutLogger(gologger.LevelInfo),
 	}
 }
 
@@ -35,30 +35,47 @@ func (d *Downloader) Download(sourceURL string, destination io.Writer) error {
 	defer func(Body io.ReadCloser) {
 		_ = Body.Close()
 	}(resp.Body)
-	n, err := io.Copy(destination, resp.Body)
 	contentLength, err := strconv.Atoi(resp.Header.Get("Content-Length"))
 	if err != nil {
 		return errors.Wrap(err, "error while getting response Content-Length-header")
 	}
-	if int(n) != contentLength {
-		return errors.Errorf("invalid number of bytes were copied while downloading a remote data: %d insted of %d", n, contentLength)
+	d.Logger.
+		WithField("url", sourceURL).
+		WithField("total", contentLength).
+		Infof("Reading response body into a destination ...")
+	wc := &WriteCounter{
+		Total:  contentLength,
+		Logger: d.Logger,
 	}
+	tee := io.TeeReader(resp.Body, wc)
+	n, err := io.Copy(destination, tee)
+	if int(n) != contentLength {
+		d.Logger.
+			WithField("url", sourceURL).
+			WithField("io.Copy", n).
+			WithField("WriteCounter", wc.Received).
+			WithField("Content-Length", resp.Header.Get("Content-Length")).
+			Warningf("Invalid number of bytes were written while downloading a remote data")
+		return nil
+	}
+	d.Logger.WithField("url", sourceURL).Infof("Remote resource has been successfully downloaded")
 	return nil
 }
 
 func (d *Downloader) request(sourceURL string) (*http.Response, error) {
 	req := d.createRequest(sourceURL)
 	startedAt := d.Now()
-	attempt := 1
+	attempt := 0
 	d.Logger.
 		WithField("url", sourceURL).
 		WithField("now", startedAt).
-		Infof("Starting download a remote data")
-	for ok := true; ok; ok = d.Now() < (startedAt + d.Timeout) {
+		Infof("Requesting a remote data ...")
+	for ok := true; ok; ok = d.Now() < (startedAt + d.ReadinessTimeout) {
+		attempt += 1
 		d.Logger.
 			WithField("url", sourceURL).
 			WithField("attempt", attempt).
-			Infof("Requesting a remote data")
+			Debugf("Requesting a remote data")
 		res, err := d.AppHttpClient.Do(req)
 		if err != nil {
 			d.Logger.
@@ -76,7 +93,7 @@ func (d *Downloader) request(sourceURL string) (*http.Response, error) {
 			d.Logger.
 				WithField("url", sourceURL).
 				WithField("attempt", attempt).
-				Infof("Data is not ready while requesting a remote data")
+				Debugf("Data is not ready while requesting a remote data")
 		} else {
 			d.Logger.
 				WithField("url", sourceURL).
@@ -88,15 +105,15 @@ func (d *Downloader) request(sourceURL string) (*http.Response, error) {
 		d.Logger.
 			WithField("url", sourceURL).
 			WithField("attempt", attempt).
-			Infof("Sleeping %s while requesting a remote data", d.Pause)
+			Debugf("Sleeping %s while requesting a remote data", d.Pause)
 		time.Sleep(d.Pause)
 	}
 	d.Logger.
 		WithField("url", sourceURL).
 		WithField("started-at", startedAt).
 		WithField("now", d.Now()).
-		Errorf("Timeout while requesting a remote data")
-	return nil, errors.Errorf("timeout of %d (seconds) has been exceeded while requesting a remote data", d.Timeout)
+		Errorf("ReadinessTimeout while requesting a remote data")
+	return nil, errors.Errorf("ReadinessTimeout of %d (seconds) has been exceeded while requesting a remote data", d.ReadinessTimeout)
 }
 
 func (d *Downloader) createRequest(sourceURL string) *http.Request {
@@ -105,4 +122,21 @@ func (d *Downloader) createRequest(sourceURL string) *http.Request {
 		panic(err)
 	}
 	return req
+}
+
+type WriteCounter struct {
+	Total    int
+	Received int
+	Logger   gologger.Logger
+}
+
+func (wc *WriteCounter) Write(p []byte) (int, error) {
+	n := len(p)
+	wc.Received += n
+	wc.Logger.
+		WithField("size", n).
+		WithField("received", wc.Received).
+		WithField("total", wc.Total).
+		Debugf("Data chunk received")
+	return n, nil
 }
