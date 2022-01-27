@@ -46,6 +46,7 @@ func main() {
 				Name: "concurrency",
 				Usage: "Max number of concurrent requests",
 				EnvVars: []string{"ONESIGNAL_CLEANER_CONCURRENCY"},
+				Value: 5,
 				Required: false,
 			},
 			&cli.BoolFlag{
