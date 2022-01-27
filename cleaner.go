@@ -6,6 +6,7 @@ import (
 	"github.com/pkg/errors"
 	"io"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -38,11 +39,11 @@ func NewCleaner(appId string, restApiKey string, logger gologger.Logger) *Cleane
 		GzCsvReaderFactory: func(filename string) (*GzCsvReader, error) {
 			return NewGzCsvReader(filename)
 		},
-		TTL:    86400 * 30 * 6,
-		TmpDir: os.TempDir(),
+		TTL:         86400 * 30 * 6,
+		TmpDir:      os.TempDir(),
 		Concurrency: 1,
-		Now:    Now,
-		Logger: logger,
+		Now:         Now,
+		Logger:      logger,
 	}
 }
 
@@ -75,20 +76,13 @@ func (c *Cleaner) Clean() error {
 		return errors.Wrap(err, "error while creating/initializing gz-csv-reader")
 	}
 	defer r.Close()
-	queue := make(chan Player)
-	c.Logger.WithField("total", c.Concurrency).Debugf("Starting workers ...")
-	for j := 1; j <= c.Concurrency; j++ {
-		c.Logger.WithField("total", c.Concurrency).Debugf("Starting worker #%d ...", j)
-		go c.startWorker(j, queue)
-	}
-	c.Logger.WithField("total", c.Concurrency).Debugf("Workers have been started")
+	throttle := make(chan struct{}, c.Concurrency)
+	wg := sync.WaitGroup{}
 	c.Logger.Infof("Starting players reading ...")
 	i := 0
 	for {
 		i += 1
 		c.Logger.Debugf("Reading row #%d", i)
-		// last_active:2018-10-26 08:48:42
-		// id:059f4d57-xxxx-xxxx-xxxx-fa83792fd276
 		pd, err := r.ReadLine()
 		if err != nil {
 			if err == io.EOF {
@@ -107,14 +101,36 @@ func (c *Cleaner) Clean() error {
 				Errorf("Error while unmarshalling a player data")
 			continue
 		}
-		c.Logger.Debugf("Sending player handling to queue: %s", pd["id"])
-		queue <- p
+		if int(p.LastActive.Unix()) > c.Now()-c.TTL {
+			c.Logger.
+				WithField("id", p.Id).
+				WithField("last-active", p.LastActive.String()).
+				Infof("Player is active")
+			continue
+		}
+		c.Logger.
+			WithField("id", p.Id).
+			WithField("last-active", p.LastActive.String()).
+			Infof("Player is inactive")
+		c.Logger.Debugf("Scheduling player for a deletion: %s", pd["id"])
+		throttle <- struct{}{}
+		wg.Add(1)
+		go func(n int) {
+			c.Logger.WithField("player", p.Id).Debugf("Starting a player deletion ...")
+			c.deletePlayer(p)
+			c.Logger.WithField("player", p.Id).Debugf("Player deletion has been finished")
+			<-throttle
+			wg.Done()
+		}(i)
 	}
-	close(queue)
+	wg.Wait()
+	close(throttle)
 	return nil
 }
 
 func (c *Cleaner) unmarshalPlayerData(pd PlayerData) (Player, error) {
+	// last_active:2018-10-26 08:48:42
+	// id:059f4d57-xxxx-xxxx-xxxx-fa83792fd276
 	p := Player{
 		Id: pd["id"],
 	}
@@ -126,26 +142,7 @@ func (c *Cleaner) unmarshalPlayerData(pd PlayerData) (Player, error) {
 	return p, nil
 }
 
-func (c *Cleaner) startWorker(id int, queue <-chan Player) {
-	for p := range queue {
-		c.Logger.WithField("worker", id).WithField("player", p.Id).Debugf("Starting a player deletion ...")
-		c.handlePlayer(p)
-		c.Logger.WithField("worker", id).WithField("player", p.Id).Debugf("Player deletion has been finished")
-	}
-}
-
-func (c *Cleaner) handlePlayer(p Player) {
-	if int(p.LastActive.Unix()) > c.Now()-c.TTL {
-		c.Logger.
-			WithField("id", p.Id).
-			WithField("last-active", p.LastActive.String()).
-			Infof("Player is active")
-		return
-	}
-	c.Logger.
-		WithField("id", p.Id).
-		WithField("last-active", p.LastActive.String()).
-		Infof("Player is inactive")
+func (c *Cleaner) deletePlayer(p Player) {
 	err := c.OneSignalClient.DeletePlayer(p.Id)
 	if err != nil {
 		c.Logger.
