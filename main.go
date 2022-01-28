@@ -59,6 +59,13 @@ func main() {
 				Required: false,
 			},
 			&cli.BoolFlag{
+				Name: "download-only",
+				Usage: "Download data file only without handling it",
+				EnvVars: []string{"ONESIGNAL_CLEANER_DOWNLOAD_ONLY"},
+				Value: false,
+				Required: false,
+			},
+			&cli.BoolFlag{
 				Name: "debug",
 				Usage: "Sets logging level to debug",
 				EnvVars: []string{"ONESIGNAL_CLEANER_DEBUG"},
@@ -84,6 +91,10 @@ func main() {
 			}
 			if c.Int("concurrency") > 0 {
 				cleaner.Concurrency = c.Int("concurrency")
+			}
+			if c.Bool("download-only") {
+				logger.Infof("Starting in \"download-only\"-mode")
+				cleaner.DownloadOnly = true
 			}
 			logger.WithField("app-id", cleaner.OneSignalClient.AppId).
 				WithField("inactive-for", cleaner.InactiveFor).
