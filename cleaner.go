@@ -25,6 +25,7 @@ type Cleaner struct {
 	ConnectionTimeout  int
 	TmpDir             string
 	Concurrency        int
+	DownloadOnly       bool
 	Now                Nower
 }
 
@@ -57,6 +58,10 @@ func (c *Cleaner) Clean(localFileName ...string) error {
 		fileName, err = c.fetchData()
 		if err != nil {
 			return errors.Wrap(err, "error while fetching a data file")
+		}
+		if c.DownloadOnly {
+			c.Logger.WithField("file", fileName).Infof("Data file has been fetched")
+			return nil
 		}
 	}
 	c.Logger.Infof("Starting data file reading ...")
