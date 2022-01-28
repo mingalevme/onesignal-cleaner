@@ -68,14 +68,15 @@ func (d *Downloader) request(sourceURL string) (*http.Response, error) {
 	attempt := 0
 	d.Logger.
 		WithField("url", sourceURL).
-		WithField("now", startedAt).
-		Infof("Requesting a remote data ...")
+		WithField("now",  time.Unix(int64(startedAt), 0).String()).
+		WithField("timeout", d.ReadinessTimeout).
+		Infof("Waiting for remote data to be ready ...")
 	for ok := true; ok; ok = d.Now() < (startedAt + d.ReadinessTimeout) {
 		attempt += 1
 		d.Logger.
 			WithField("url", sourceURL).
 			WithField("attempt", attempt).
-			Debugf("Requesting a remote data")
+			Debugf("Requesting a remote data ...")
 		res, err := d.AppHttpClient.Do(req)
 		if err != nil {
 			d.Logger.
